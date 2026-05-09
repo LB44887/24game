@@ -111,6 +111,7 @@ let history=[];          // {aId,bId,op,resultId,aExpr,bExpr,aVal,bVal,rVal,rExp
 let selectedId=null;
 let mergePending=null;   // {aId,bId}
 let score=0,total=0;
+let audioCtx=null; // 延迟初始化，必须在用户手势中激活
 let solutions=[];
 let roundActive=false;
 let nextId=100;
@@ -280,6 +281,7 @@ function renderSteps(){
 // ── 交互逻辑 ──
 function onCardClick(id){
   if(!roundActive)return;
+  ensureAudio(); // 首次点击激活音频上下文（移动端要求）
 
   if(selectedId===null){
     selectedId=id;
@@ -371,31 +373,35 @@ function checkWin(){
   }
 }
 
-function playCorrectSound(){
+function ensureAudio(){
+  // 必须在用户手势调用链中执行才能解锁移动端音频
+  if(audioCtx)return;
   try{
-    var ctx=new(window.AudioContext||window.webkitAudioContext)();
-    var notes=[523.25,659.25,783.99]; // C5,E5,G5 — 大三和弦上行
-    notes.forEach(function(freq,i){
-      var osc=ctx.createOscillator();
-      var gain=ctx.createGain();
-      osc.type='sine';
-      osc.frequency.value=freq;
-      gain.gain.setValueAtTime(.25,ctx.currentTime+i*.12);
-      gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+i*.12+.4);
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.start(ctx.currentTime+i*.12);
-      osc.stop(ctx.currentTime+i*.12+.4);
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  }catch(e){}
+}
+
+function playCorrectSound(){
+  if(!audioCtx)return;
+  try{
+    if(audioCtx.state==='suspended')audioCtx.resume();
+    var t=audioCtx.currentTime;
+    // C-E-G 和弦，依次叠加
+    [523.25,659.25,783.99].forEach(function(f,i){
+      var o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.type='sine';o.frequency.value=f;
+      g.gain.setValueAtTime(.25,t+i*.1);
+      g.gain.exponentialRampToValueAtTime(.001,t+i*.1+.35);
+      o.connect(g);g.connect(audioCtx.destination);
+      o.start(t+i*.1);o.stop(t+i*.1+.35);
     });
-    // 最后加一个高音
-    var osc2=ctx.createOscillator();
-    var gain2=ctx.createGain();
-    osc2.type='triangle';
-    osc2.frequency.value=1046.5;
-    gain2.gain.setValueAtTime(.2,ctx.currentTime+.36);
-    gain2.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.36+.6);
-    osc2.connect(gain2);gain2.connect(ctx.destination);
-    osc2.start(ctx.currentTime+.36);
-    osc2.stop(ctx.currentTime+.36+.6);
+    var o2=audioCtx.createOscillator(),g2=audioCtx.createGain();
+    o2.type='triangle';o2.frequency.value=1046.5;
+    g2.gain.setValueAtTime(.2,t+.3);
+    g2.gain.exponentialRampToValueAtTime(.001,t+.3+.55);
+    o2.connect(g2);g2.connect(audioCtx.destination);
+    o2.start(t+.3);o2.stop(t+.3+.55);
   }catch(e){}
 }
 
