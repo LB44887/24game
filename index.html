@@ -201,12 +201,17 @@ function updateScore(){
 
 // ── 新回合 ──
 function newRound(){
-  const nums=[rand(1,13),rand(1,13),rand(1,13),rand(1,13)];
+  // 只出有解的题
+  var nums,sols;
+  do{
+    nums=[rand(1,13),rand(1,13),rand(1,13),rand(1,13)];
+    sols=solve(nums);
+  }while(sols.length===0);
   cards=[];
   for(let i=0;i<4;i++){
     cards.push({id:i,value:nums[i],suit:SUITS[i],isResult:false,expr:String(nums[i])});
   }
-  solutions=solve(nums);
+  solutions=sols;
   history=[];
   selectedId=null;
   mergePending=null;
@@ -357,12 +362,41 @@ function checkWin(){
       roundActive=false;
       score++;
       updateScore();
+      playCorrectSound();
       showWinToast();
       setTimeout(newRound,1800);
     }else{
       msg('结果是 '+formatVal(cards[0].value)+'，不是 24。可撤销或重来','err');
     }
   }
+}
+
+function playCorrectSound(){
+  try{
+    var ctx=new(window.AudioContext||window.webkitAudioContext)();
+    var notes=[523.25,659.25,783.99]; // C5,E5,G5 — 大三和弦上行
+    notes.forEach(function(freq,i){
+      var osc=ctx.createOscillator();
+      var gain=ctx.createGain();
+      osc.type='sine';
+      osc.frequency.value=freq;
+      gain.gain.setValueAtTime(.25,ctx.currentTime+i*.12);
+      gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+i*.12+.4);
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.start(ctx.currentTime+i*.12);
+      osc.stop(ctx.currentTime+i*.12+.4);
+    });
+    // 最后加一个高音
+    var osc2=ctx.createOscillator();
+    var gain2=ctx.createGain();
+    osc2.type='triangle';
+    osc2.frequency.value=1046.5;
+    gain2.gain.setValueAtTime(.2,ctx.currentTime+.36);
+    gain2.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+.36+.6);
+    osc2.connect(gain2);gain2.connect(ctx.destination);
+    osc2.start(ctx.currentTime+.36);
+    osc2.stop(ctx.currentTime+.36+.6);
+  }catch(e){}
 }
 
 function undo(){
