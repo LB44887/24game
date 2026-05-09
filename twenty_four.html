@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>24点</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: radial-gradient(ellipse at center, #1a6b2e 0%, #0a3d15 100%);
+  min-height: 100vh; display: flex; justify-content: center; align-items: center;
+  user-select: none; -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+.game {
+  width: 100%; max-width: 420px; padding: 12px;
+  display: flex; flex-direction: column; align-items: center;
+  min-height: 100vh;
+}
+
+/* ── 标题 ── */
+.title {
+  color: #FFD700; font-size: 26px; font-weight: 900;
+  text-shadow: 0 2px 8px rgba(0,0,0,.5);
+  margin-top: 8px; letter-spacing: 4px;
+}
+.subtitle {
+  color: #a0d6a0; font-size: 12px; margin-bottom: 6px;
+}
+
+/* ── 得分 ── */
+.score-bar {
+  display: flex; gap: 24px; color: #e0e0e0; font-size: 14px;
+  margin-bottom: 6px;
+}
+.score-bar span { color: #FFD700; font-weight: bold; }
+
+/* ── 表达式显示 ── */
+.expr-box {
+  width: 100%; background: rgba(0,0,0,.35);
+  border: 2px solid rgba(255,215,0,.3); border-radius: 12px;
+  padding: 12px 16px; margin-bottom: 10px; min-height: 48px;
+  display: flex; align-items: center; justify-content: center;
+}
+.expr-text {
+  color: #fff; font-size: 22px; font-family: 'Courier New', monospace;
+  letter-spacing: 3px; word-break: break-all; text-align: center;
+  line-height: 1.4;
+}
+.expr-text.placeholder { color: #5a9a5a; font-size: 14px; letter-spacing: 1px; }
+
+/* ── 消息 ── */
+.msg {
+  color: #FFD700; font-size: 14px; min-height: 22px; margin-bottom: 4px;
+  text-align: center; transition: .3s;
+}
+.msg.error { color: #FF5722; }
+.msg.success { color: #4CAF50; }
+
+/* ── 扑克牌 ── */
+.cards-row {
+  display: flex; gap: 10px; margin-bottom: 14px;
+}
+.card {
+  width: 72px; height: 104px; background: #fff;
+  border-radius: 8px; position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+  cursor: pointer; transition: transform .15s, box-shadow .15s;
+  display: flex; flex-direction: column;
+}
+.card:active { transform: scale(.93); }
+.card.used {
+  opacity: .45; box-shadow: 0 2px 4px rgba(0,0,0,.3);
+  pointer-events: none;
+}
+.card .corner {
+  position: absolute; display: flex; flex-direction: column;
+  align-items: center; line-height: 1;
+}
+.card .corner.top { top: 5px; left: 6px; }
+.card .corner.btm { bottom: 5px; right: 6px; transform: rotate(180deg); }
+.card .corner .rank { font-size: 16px; font-weight: 900; }
+.card .corner .suit { font-size: 12px; }
+.card .center-suit {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 36px; opacity: .25;
+}
+.card.red { color: #D32F2F; }
+.card.black { color: #212121; }
+
+/* ── 运算符按钮 ── */
+.op-row {
+  display: flex; gap: 8px; margin-bottom: 14px;
+}
+.op-btn {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: #2c2c2c; color: #fff; font-size: 24px; font-weight: 700;
+  border: 2px solid #555; display: flex; align-items: center;
+  justify-content: center; cursor: pointer; transition: .12s;
+  box-shadow: 0 3px 6px rgba(0,0,0,.3);
+}
+.op-btn:active { background: #444; border-color: #FFD700; transform: scale(.9); }
+.op-btn.paren { font-size: 20px; width: 60px; }
+
+/* ── 操作按钮 ── */
+.act-row {
+  display: flex; gap: 8px; margin-bottom: 16px;
+}
+.act-btn {
+  height: 42px; border-radius: 10px; border: none;
+  font-size: 14px; font-weight: 700; cursor: pointer;
+  color: #fff; padding: 0 14px; transition: .12s;
+  box-shadow: 0 3px 8px rgba(0,0,0,.3);
+}
+.act-btn:active { transform: scale(.93); }
+.act-undo  { background: #555; }
+.act-clear { background: #555; }
+.act-submit{ background: #4CAF50; font-size: 16px; padding: 0 24px; }
+.act-hint  { background: #FF9800; }
+.act-skip  { background: #2196F3; }
+
+/* ── 抖动动画 ── */
+@keyframes shake {
+  0%,100%{ transform: translateX(0); }
+  20%    { transform: translateX(-6px); }
+  40%    { transform: translateX(6px); }
+  60%    { transform: translateX(-4px); }
+  80%    { transform: translateX(4px); }
+}
+.shake { animation: shake .4s ease; }
+
+/* ── 弹窗 ── */
+.overlay {
+  position: fixed; top:0;left:0;right:0;bottom:0;
+  background: rgba(0,0,0,.6); display: flex;
+  align-items: center; justify-content: center; z-index: 100;
+  display: none;
+}
+.overlay.show { display: flex; }
+.dialog {
+  background: #1a3a1a; border-radius: 16px; padding: 24px;
+  max-width: 350px; width: 90%; max-height: 70vh;
+  overflow-y: auto; border: 2px solid rgba(255,215,0,.4);
+  color: #eee;
+}
+.dialog h3 { color: #FFD700; text-align: center; margin-bottom: 12px; font-size: 18px; }
+.dialog .sol {
+  font-family: 'Courier New', monospace; font-size: 15px;
+  color: #90EE90; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.dialog .sol:last-child { border-bottom: none; }
+.dialog .close-btn {
+  display: block; margin: 16px auto 0; padding: 8px 32px;
+  border-radius: 10px; border: none; background: #FFD700;
+  color: #1a3a1a; font-weight: bold; font-size: 15px; cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="game">
+  <div class="title">🃏 24 点</div>
+  <div class="subtitle">经典扑克数学游戏</div>
+
+  <div class="score-bar">
+    <div>得分: <span id="score">0</span></div>
+    <div>题数: <span id="round">0</span></div>
+  </div>
+
+  <div class="expr-box" id="exprBox">
+    <div class="expr-text placeholder" id="exprText">点击卡牌开始...</div>
+  </div>
+
+  <div class="msg" id="msg"></div>
+
+  <!-- 扑克牌 -->
+  <div class="cards-row" id="cardsRow"></div>
+
+  <!-- 运算符 -->
+  <div class="op-row">
+    <button class="op-btn" onclick="onOp('+')">+</button>
+    <button class="op-btn" onclick="onOp('-')">−</button>
+    <button class="op-btn" onclick="onOp('*')">×</button>
+    <button class="op-btn" onclick="onOp('/')">÷</button>
+    <button class="op-btn paren" onclick="onBracket()">( )</button>
+  </div>
+
+  <!-- 操作 -->
+  <div class="act-row">
+    <button class="act-btn act-undo" onclick="undo()">撤销</button>
+    <button class="act-btn act-clear" onclick="clearAll()">清空</button>
+    <button class="act-btn act-submit" onclick="submit()">✔ 确定</button>
+  </div>
+  <div class="act-row">
+    <button class="act-btn act-hint" onclick="hint()">💡 提示</button>
+    <button class="act-btn act-skip" onclick="skip()">跳过</button>
+  </div>
+</div>
+
+<!-- 解法弹窗 -->
+<div class="overlay" id="overlay">
+  <div class="dialog">
+    <h3 id="dialogTitle">所有解法</h3>
+    <div id="dialogContent"></div>
+    <button class="close-btn" onclick="closeDialog()">知道了</button>
+  </div>
+</div>
+
+<script>
+// ── 扑克牌数据 ──
+const SUITS = ['spade','heart','diamond','club'];
+const SUIT_SYMBOLS = { spade:'♠', heart:'♥', diamond:'♦', club:'♣' };
+const SUIT_COLORS = { spade:'black', heart:'red', diamond:'red', club:'black' };
+const RANK_NAMES = { 1:'A', 11:'J', 12:'Q', 13:'K' };
+
+// ── 游戏状态 ──
+let cards = [];           // 当前4张牌的数字
+let solutions = [];
+let score = 0, total = 0;
+let exprItems = [];       // [{type:'card'|'op'|'('|')', idx?, val?, sym?}]
+let cardUsed = [false,false,false,false];
+
+// ── 求解器 ──
+function applyOp(a, op, b) {
+  if (op === '+') return a + b;
+  if (op === '-') return a - b;
+  if (op === '*') return a * b;
+  if (op === '/') { if (b === 0) throw 'div0'; return a / b; }
+}
+
+function permute(arr) {
+  if (arr.length <= 1) return [arr];
+  const result = [];
+  for (let i = 0; i < arr.length; i++) {
+    const rest = permute(arr.slice(0,i).concat(arr.slice(i+1)));
+    for (const p of rest) result.push([arr[i], ...p]);
+  }
+  return result;
+}
+
+function solve(nums) {
+  const ops = ['+','-','*','/'];
+  const seen = new Set();
+  const sols = [];
+
+  const perms = permute(nums);
+  const uniquePerms = [];
+  const permSeen = new Set();
+  for (const p of perms) {
+    const key = p.join(',');
+    if (!permSeen.has(key)) { permSeen.add(key); uniquePerms.push(p); }
+  }
+
+  for (const [a,b,c,d] of uniquePerms) {
+    for (const op1 of ops) {
+      for (const op2 of ops) {
+        for (const op3 of ops) {
+          const structs = [
+            { expr: `((${a}${op1}${b})${op2}${c})${op3}${d}`, calc: ()=> applyOp(applyOp(applyOp(a,op1,b),op2,c),op3,d) },
+            { expr: `(${a}${op1}(${b}${op2}${c}))${op3}${d}`, calc: ()=> applyOp(applyOp(a,op1,applyOp(b,op2,c)),op3,d) },
+            { expr: `(${a}${op1}${b})${op2}(${c}${op3}${d})`, calc: ()=> applyOp(applyOp(a,op1,b),op2,applyOp(c,op3,d)) },
+            { expr: `${a}${op1}((${b}${op2}${c})${op3}${d})`, calc: ()=> applyOp(a,op1,applyOp(applyOp(b,op2,c),op3,d)) },
+            { expr: `${a}${op1}(${b}${op2}(${c}${op3}${d}))`, calc: ()=> applyOp(a,op1,applyOp(b,op2,applyOp(c,op3,d))) },
+          ];
+          for (const s of structs) {
+            try {
+              if (Math.abs(s.calc() - 24) < 1e-9 && !seen.has(s.expr)) {
+                seen.add(s.expr);
+                sols.push(s.expr);
+              }
+            } catch(e) {}
+          }
+        }
+      }
+    }
+  }
+  return sols;
+}
+
+// ── 渲染 ──
+function newRound() {
+  cards = [rand(1,13), rand(1,13), rand(1,13), rand(1,13)];
+  solutions = solve(cards);
+  total++;
+  resetExpr();
+  renderCards();
+  updateScore();
+  msg('', '');
+  document.getElementById('exprText').className = 'expr-text placeholder';
+  document.getElementById('exprText').textContent = '点击卡牌开始...';
+}
+
+function rand(min,max) { return Math.floor(Math.random()*(max-min+1))+min; }
+
+function renderCards() {
+  const row = document.getElementById('cardsRow');
+  row.innerHTML = '';
+  for (let i = 0; i < 4; i++) {
+    const n = cards[i];
+    const suit = SUITS[i];
+    const symbol = SUIT_SYMBOLS[suit];
+    const color = SUIT_COLORS[suit];
+    const rank = RANK_NAMES[n] || String(n);
+
+    const el = document.createElement('div');
+    el.className = `card ${color}${cardUsed[i]?' used':''}`;
+    el.onclick = () => onCard(i);
+    el.innerHTML = `
+      <div class="corner top"><span class="rank">${rank}</span><span class="suit">${symbol}</span></div>
+      <div class="center-suit">${symbol}</div>
+      <div class="corner btm"><span class="rank">${rank}</span><span class="suit">${symbol}</span></div>`;
+    row.appendChild(el);
+  }
+}
+
+function updateCardsUsed() {
+  const cardEls = document.querySelectorAll('#cardsRow .card');
+  for (let i = 0; i < 4; i++) {
+    if (cardUsed[i]) cardEls[i].classList.add('used');
+    else cardEls[i].classList.remove('used');
+  }
+}
+
+function updateDisplay() {
+  const txt = document.getElementById('exprText');
+  if (exprItems.length === 0) {
+    txt.className = 'expr-text placeholder';
+    txt.textContent = '点击卡牌开始...';
+    return;
+  }
+  txt.className = 'expr-text';
+
+  let disp = '';
+  for (const item of exprItems) {
+    if (item.type === 'card') disp += item.val;
+    else if (item.type === 'op') disp += ' ' + item.sym + ' ';
+    else disp += item.val; // '(' or ')'
+  }
+  txt.textContent = disp;
+}
+
+function updateScore() {
+  document.getElementById('score').textContent = score;
+  document.getElementById('round').textContent = total;
+}
+
+function msg(text, cls) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = 'msg ' + (cls || '');
+}
+
+function isNumber() {
+  return exprItems.length > 0 && exprItems[exprItems.length-1].type === 'card';
+}
+function isOp() {
+  return exprItems.length > 0 && exprItems[exprItems.length-1].type === 'op';
+}
+function isOpenParen() {
+  return exprItems.length > 0 && exprItems[exprItems.length-1].val === '(';
+}
+function isCloseParen() {
+  return exprItems.length > 0 && exprItems[exprItems.length-1].val === ')';
+}
+
+// ── 交互 ──
+function onCard(idx) {
+  if (cardUsed[idx]) { flashMsg('这张牌已经用过了！'); return; }
+  if (exprItems.length > 0 && (isNumber() || isCloseParen())) {
+    flashMsg('请先选择一个运算符'); return;
+  }
+
+  cardUsed[idx] = true;
+  exprItems.push({ type:'card', idx, val: cards[idx] });
+  updateCardsUsed();
+  updateDisplay();
+}
+
+function onOp(sym) {
+  const realMap = { '+':'+','−':'-','×':'*','÷':'/' };
+  const real = realMap[sym];
+  if (exprItems.length === 0) { flashMsg('请先选择一张卡牌'); return; }
+  if (isOpenParen()) { flashMsg('括号后需要数字'); return; }
+  if (isOp()) exprItems.pop(); // 替换上一个运算符
+  exprItems.push({ type:'op', sym, val:real });
+  updateDisplay();
+}
+
+function onBracket() {
+  if (exprItems.length === 0 || isOp() || isOpenParen()) {
+    exprItems.push({ type:'paren', val:'(' });
+  } else {
+    const openCount = exprItems.filter(e => e.val === '(').length;
+    const closeCount = exprItems.filter(e => e.val === ')').length;
+    if (openCount > closeCount) {
+      exprItems.push({ type:'paren', val:')' });
+    } else {
+      exprItems.push({ type:'paren', val:'(' });
+    }
+  }
+  updateDisplay();
+}
+
+function undo() {
+  if (exprItems.length === 0) return;
+  const removed = exprItems.pop();
+  if (removed.type === 'card') {
+    cardUsed[removed.idx] = false;
+    updateCardsUsed();
+  }
+  updateDisplay();
+}
+
+function clearAll() {
+  resetExpr();
+  updateDisplay();
+  updateCardsUsed();
+}
+
+function resetExpr() {
+  exprItems = [];
+  cardUsed = [false,false,false,false];
+}
+
+function toEvalString() {
+  const parts = [];
+  for (const item of exprItems) {
+    if (item.type === 'card') parts.push(item.val);
+    else if (item.type === 'op') parts.push(item.val);
+    else parts.push(item.val);
+  }
+  if (parts.length === 0) return null;
+  const last = exprItems[exprItems.length-1];
+  if (last.type === 'op' || last.val === '(') return null;
+  return parts.join('');
+}
+
+function submit() {
+  if (exprItems.length === 0) return;
+
+  const usedCount = exprItems.filter(e => e.type === 'card').length;
+  if (usedCount < 4) {
+    flashMsg(`请使用全部 4 张牌（当前只用了 ${usedCount} 张）`);
+    shakeBox(); return;
+  }
+
+  const str = toEvalString();
+  if (!str) { flashMsg('表达式不完整！'); shakeBox(); return; }
+
+  let result;
+  try { result = eval(str); }
+  catch(e) { flashMsg('表达式有误，请调整'); shakeBox(); return; }
+
+  if (Math.abs(result - 24) < 1e-9) {
+    score++;
+    updateScore();
+    msg('✅ 正确！' + str + ' = 24', 'success');
+    // 禁用操作，自动下一题
+    disableInput();
+    setTimeout(newRound, 1500);
+  } else {
+    flashMsg(str + ' = ' + result + '，不等于 24，再试试！');
+    shakeBox();
+  }
+}
+
+function hint() {
+  if (solutions.length === 0) { msg('这组数字无解！', 'error'); return; }
+  score -= 0.5;
+  updateScore();
+
+  const sol = solutions[Math.floor(Math.random() * solutions.length)];
+  showDialog('💡 参考解法（-0.5分）', solutions.map(s => `<div class="sol">${s}</div>`).join(''));
+}
+
+function skip() {
+  if (solutions.length > 0) msg('答案: ' + solutions[0], '');
+  else msg('这组数字无解', 'error');
+  disableInput();
+  setTimeout(newRound, 2000);
+}
+
+function disableInput() {
+  // 禁止点牌
+  const cardEls = document.querySelectorAll('#cardsRow .card');
+  cardEls.forEach(c => c.style.pointerEvents = 'none');
+}
+
+// ── 特效 ──
+function flashMsg(text) {
+  msg(text, 'error');
+  setTimeout(() => msg('', ''), 2000);
+}
+
+function shakeBox() {
+  const box = document.getElementById('exprBox');
+  box.classList.add('shake');
+  box.style.borderColor = '#FF5722';
+  setTimeout(() => { box.classList.remove('shake'); box.style.borderColor = 'rgba(255,215,0,.3)'; }, 400);
+}
+
+function showDialog(title, content) {
+  document.getElementById('dialogTitle').textContent = title;
+  document.getElementById('dialogContent').innerHTML = content;
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeDialog() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+// ── 启动 ──
+newRound();
+</script>
+</body>
+</html>
