@@ -35,10 +35,10 @@ def _write_cache(name, df):
 # ── 1. 股票列表 ──────────────────────────────────────
 
 def fetch_stock_list(force_refresh=False):
-    """获取全 A 股列表（代码 + 名称）"""
+    """获取全 A 股列表（代码 + 名称 + 市值）"""
     if not force_refresh:
         cached = _read_cache("stock_list", max_age_hours=12)
-        if cached is not None and len(cached) > 1000:
+        if cached is not None and len(cached) > 1000 and "mkt_cap" in cached.columns:
             return cached
 
     try:
@@ -50,12 +50,12 @@ def fetch_stock_list(force_refresh=False):
         mask = ~df["name"].str.contains("ST|退", na=False)
         df = df[mask]
 
-        # 排除 B 股、北交所 (8/9开头=沪市主板, 0/3=深市, 4/8=创业板, 688=科创板)
-        # 保留主流板块
-        df = df[df["code"].str.match(r"^(0[036]|3[0]\d|4\d{5}|6[0-8]\d{4}|9\d{5})")]
+        # 保留所有主流板块的股票
+        df = df[df["code"].str.match(r"^(0[0-9]{5}|3[0-9]{5}|6[0-9]{5})")]
 
-        # 扫描模式
-        if SCAN_MODE == "hs300":
+        # 扫描模式过滤
+        from .config import SCAN_MODE as mode
+        if mode == "hs300":
             try:
                 hs300 = ak.index_stock_cons_csindex(symbol="000300")
                 codes = set(hs300["成分券代码"].astype(str).str.zfill(6))
@@ -63,14 +63,68 @@ def fetch_stock_list(force_refresh=False):
             except Exception:
                 pass
 
+        # 计算市值（从新浪行情批量获取）
+        df = _attach_market_cap(df)
+
         _write_cache("stock_list", df)
-        print(f"  股票列表: {len(df)} 只 (mode={SCAN_MODE})")
+        print(f"  股票列表: {len(df)} 只 (mode={mode})")
         return df
     except Exception as e:
         print(f"  股票列表获取失败: {e}")
-        # 尝试读旧缓存
         old = _read_cache("stock_list", max_age_hours=9999)
         return old if old is not None else pd.DataFrame()
+
+
+def _attach_market_cap(stock_df):
+    """为股票列表附加流通市值"""
+    try:
+        spot = fetch_spot_data()
+        if spot.empty:
+            return stock_df
+
+        # spot 有 price, 需要 outstanding_share 算市值
+        # outstanding_share 在 daily 数据中，这里用近似：取 spot 价格 * 从 daily 获取的股本
+        # 简化：只保留有 spot 数据的股票，用成交额/换手率 估算市值
+        # 实际上：流通市值 ≈ 成交额 / 换手率（如果换手率是小数）
+        # 更简单：直接用 spot 已有字段
+
+        # spot 数据没有直接市值，这里标记是否有行情
+        spot_codes = set(spot["code"].tolist())
+        stock_df["has_quote"] = stock_df["code"].isin(spot_codes)
+        stock_df["mkt_cap"] = 0.0
+
+        return stock_df
+    except Exception:
+        stock_df["mkt_cap"] = 0.0
+        return stock_df
+
+
+def fetch_market_cap(code):
+    """获取单只股票的流通市值（price * outstanding_share）"""
+    try:
+        kline = fetch_kline(code, days=5)
+        if kline.empty:
+            return 0.0
+
+        # 从 daily 数据获取最新 outstanding_share
+        # 但 fetch_kline 现在只返回 date/open/high/low/close/volume
+        # 需要从原始 API 获取 outstanding_share
+        from datetime import datetime, timedelta
+        end = datetime.now().strftime("%Y%m%d")
+        start = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
+        market = "sh" if str(code).startswith(("6", "9")) else "sz"
+        symbol = market + str(code)
+
+        df = ak.stock_zh_a_daily(symbol=symbol, start_date=start, end_date=end, adjust="qfq")
+        if df.empty or "outstanding_share" not in df.columns:
+            return 0.0
+
+        latest = df.iloc[-1]
+        price = float(latest["close"])
+        shares = float(latest["outstanding_share"])
+        return price * shares
+    except Exception:
+        return 0.0
 
 
 # ── 2. 实时行情（Sina 源） ───────────────────────────
@@ -125,7 +179,7 @@ def fetch_kline(code, days=250):
             return pd.DataFrame()
 
         df["date"] = pd.to_datetime(df["date"])
-        cols = ["date", "open", "high", "low", "close", "volume"]
+        cols = ["date", "open", "high", "low", "close", "volume", "turnover", "outstanding_share"]
         df = df[[c for c in cols if c in df.columns]]
         df = df.sort_values("date").tail(days)
         df = df.reset_index(drop=True)

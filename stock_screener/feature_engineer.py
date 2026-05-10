@@ -154,6 +154,20 @@ def compute_all_features(kline_df):
     high_20d = np.max(high[-20:])
     features["near_20d_high"] = 100 if close[-1] >= high_20d * 0.97 else (50 if close[-1] >= high_20d * 0.9 else 0)
 
+    # ── 11. 换手率（Sina 返回小数，转百分比） ──
+    if "turnover" in df.columns and not df["turnover"].empty:
+        raw = float(df["turnover"].iloc[-1])
+        features["turnover_pct"] = raw * 100 if raw < 1 else raw  # 小数→%
+    else:
+        features["turnover_pct"] = 3.0
+
+    # ── 12. 市值（从 outstanding_share * close 计算） ──
+    if "outstanding_share" in df.columns:
+        shares = float(df["outstanding_share"].iloc[-1])
+        features["mkt_cap"] = close[-1] * shares if shares > 0 else 0.0
+    else:
+        features["mkt_cap"] = 0.0
+
     return features
 
 

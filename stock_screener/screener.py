@@ -5,7 +5,7 @@
 import time
 import pandas as pd
 import numpy as np
-from .config import WEIGHTS
+from .config import WEIGHTS, SCAN_LIMIT, MIN_MARKET_CAP, MAX_MARKET_CAP
 from .data_fetcher import fetch_stock_list, fetch_kline_batch
 from .feature_engineer import compute_all_features
 
@@ -23,18 +23,32 @@ def run_screen(stock_list=None, limit=30, delay=0.1):
     if stock_list.empty:
         return pd.DataFrame()
 
+    # 扫描数量限制（全市场模式保护）
+    if SCAN_LIMIT > 0 and len(stock_list) > SCAN_LIMIT:
+        stock_list = stock_list.head(SCAN_LIMIT)
+
     codes = stock_list["code"].tolist()
     names = dict(zip(stock_list["code"], stock_list["name"]))
 
     print(f"  开始扫描 {len(codes)} 只股票...")
     results = []
+    skipped_cap = 0
 
     for i, code in enumerate(codes):
-        if (i + 1) % 50 == 0:
-            print(f"    进度: {i+1}/{len(codes)}, 已完成打分: {len(results)}")
+        if (i + 1) % 100 == 0:
+            print(f"    进度: {i+1}/{len(codes)}, 打分: {len(results)}, 过滤市值: {skipped_cap}")
 
         features = _get_features_cached(code)
         if features is None:
+            continue
+
+        # 市值过滤（从K线 outstanding_share * close 计算得出）
+        mkt_cap = features.get("mkt_cap", 0)
+        if MIN_MARKET_CAP > 0 and 0 < mkt_cap < MIN_MARKET_CAP:
+            skipped_cap += 1
+            continue
+        if MAX_MARKET_CAP > 0 and mkt_cap > MAX_MARKET_CAP:
+            skipped_cap += 1
             continue
 
         scores = _score_features(features)
@@ -98,11 +112,25 @@ def _score_features(f):
     tech += f.get("vol_breakout", 0) * 0.05
     scores["technical"] = min(100, tech)
 
-    # ── 基本面 (fundamental) — 有限数据 ───
-    # 从实时行情补充 PE/PB 信息（如果可用）
-    fund = 50  # 基础分，数据有限
-    # 可以通过扩展 data_fetcher 补充 PE/PB 后细化
-    scores["fundamental"] = fund
+    # ── 基本面 (fundamental) — 市值+换手率 ───
+    fund = 50
+    mkt_cap = f.get("mkt_cap", 0)
+    # 中小市值溢价: 50-200亿得分最高
+    cap_yi = mkt_cap / 1e8 if mkt_cap > 0 else 100
+    if 50 <= cap_yi <= 200:
+        fund += 30
+    elif 30 <= cap_yi <= 500:
+        fund += 15
+    elif cap_yi > 1000:
+        fund -= 10  # 大盘股动能不足扣分
+
+    # 换手率适中 (2-8% 活跃但不狂热)
+    turnover = f.get("turnover_pct", 3)
+    if 2 <= turnover <= 8:
+        fund += 20
+    elif 1 <= turnover <= 15:
+        fund += 10
+    scores["fundamental"] = min(100, max(0, fund))
 
     # ── 资金面 (capital) — 有限数据 ───────
     # 量价关系可部分反映资金面
